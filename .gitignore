@@ -1,4 +1,6 @@
 __pycache__/
 *.pyc
+.venv/
 output/
 9Grid exercice.xlsx
+9Grid_exercice.xlsx

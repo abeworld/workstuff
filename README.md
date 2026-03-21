@@ -26,9 +26,10 @@ python -m pip install -r requirements.txt
 
 ## Expected Excel File
 
-By default, the script looks for:
+By default, the script looks for either of these files:
 
 - `9Grid exercice.xlsx`
+- `9Grid_exercice.xlsx`
 
 in the same folder as the script.
 
@@ -38,7 +39,7 @@ It reads the sheet named:
 
 ## Supported Input Formats
 
-The script currently supports two Excel layouts.
+The script currently supports three Excel layouts.
 
 ### 1. Compact format
 
@@ -72,6 +73,31 @@ Required columns:
 - `Rationale`
 - `Performance Score`
 - `Trajectory Score`
+
+### 3. Hybrid calibration export
+
+This matches the newer workbook structure that includes HR data plus calibration fields.
+
+Required columns:
+
+- `Lead Name`
+- `Name`
+- `Action Bucket`
+- `Owner`
+- `Main Strength`
+- `Main Concern`
+- `Rationale`
+- `Churn Risk`
+- `Performance`
+- `Potential`
+
+How hybrid format is interpreted:
+
+- `Name` becomes the plotted team member name
+- `Performance` is mapped to `Performance Score`
+- `Potential` is mapped to `Trajectory Score`
+- `Owner` is used when filled; otherwise the script falls back to `Lead Name`
+- rows without valid `Performance` and `Potential` scores from `1` to `3` are skipped
 
 ## Visual Encoding
 

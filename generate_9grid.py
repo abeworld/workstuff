@@ -9,9 +9,12 @@ from matplotlib.patches import Rectangle
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_INPUT = SCRIPT_DIR / "9Grid exercice.xlsx"
 OUTPUT_DIR = SCRIPT_DIR / "output"
 SHEET_NAME = "Data"
+DEFAULT_INPUT_CANDIDATES = [
+    SCRIPT_DIR / "9Grid exercice.xlsx",
+    SCRIPT_DIR / "9Grid_exercice.xlsx",
+]
 
 FULL_REQUIRED_COLUMNS = [
     "Team Member",
@@ -29,6 +32,19 @@ COMPACT_REQUIRED_COLUMNS = [
     "Lead Name",
     "Team Member",
     "9Grid number",
+]
+
+HYBRID_REQUIRED_COLUMNS = [
+    "Lead Name",
+    "Team Member",
+    "Action Bucket",
+    "Owner",
+    "Main Strength",
+    "Main Concern",
+    "Rationale",
+    "Churn Risk",
+    "Performance Score",
+    "Trajectory Score",
 ]
 
 X_LABELS = {
@@ -83,9 +99,21 @@ GRID_NUMBER_MAP = {
 }
 
 
+def resolve_input_path() -> Path:
+    for candidate in DEFAULT_INPUT_CANDIDATES:
+        if candidate.exists():
+            return candidate
+
+    expected_names = ", ".join(f'"{path.name}"' for path in DEFAULT_INPUT_CANDIDATES)
+    raise FileNotFoundError(f"Input file not found. Place one of {expected_names} next to this script.")
+
+
 def load_data(excel_path: Path) -> pd.DataFrame:
     df = pd.read_excel(excel_path, sheet_name=SHEET_NAME)
     df = normalize_columns(df)
+
+    if all(col in df.columns for col in HYBRID_REQUIRED_COLUMNS):
+        return load_hybrid_format(df)
 
     if all(col in df.columns for col in FULL_REQUIRED_COLUMNS):
         return load_full_format(df)
@@ -94,32 +122,18 @@ def load_data(excel_path: Path) -> pd.DataFrame:
         return load_compact_format(df)
 
     missing_full = [col for col in FULL_REQUIRED_COLUMNS if col not in df.columns]
+    missing_hybrid = [col for col in HYBRID_REQUIRED_COLUMNS if col not in df.columns]
     missing_compact = [col for col in COMPACT_REQUIRED_COLUMNS if col not in df.columns]
     raise ValueError(
         "Unsupported sheet structure.\n"
         f"Missing columns for full format: {', '.join(missing_full) or 'none'}\n"
+        f"Missing columns for hybrid format: {', '.join(missing_hybrid) or 'none'}\n"
         f"Missing columns for compact format: {', '.join(missing_compact) or 'none'}"
     )
 
 
 def load_full_format(df: pd.DataFrame) -> pd.DataFrame:
-    df = df[FULL_REQUIRED_COLUMNS].copy()
-    df["Team Member"] = df["Team Member"].astype("string").str.strip()
-    df = df[df["Team Member"].notna() & (df["Team Member"] != "")]
-    df = df[df["Performance Score"].notna() & df["Trajectory Score"].notna()]
-
-    df["Performance Score"] = pd.to_numeric(df["Performance Score"], errors="coerce")
-    df["Trajectory Score"] = pd.to_numeric(df["Trajectory Score"], errors="coerce")
-    df = df[df["Performance Score"].between(1, 3) & df["Trajectory Score"].between(1, 3)]
-
-    for col in ["Action Bucket", "Owner", "Churn Risk", "Main Strength", "Main Concern", "Rationale"]:
-        df[col] = df[col].fillna("").astype("string").str.strip()
-
-    df["Assigned Score"] = (
-        df["Performance Score"].astype(int) + (df["Trajectory Score"].astype(int) - 1) * 3
-    )
-    df = df.reset_index(drop=True)
-    return assign_plot_numbers(df)
+    return prepare_plotting_frame(df[FULL_REQUIRED_COLUMNS].copy())
 
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -130,6 +144,8 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 
         if lowered == "lead name":
             renamed_columns[col] = "Lead Name"
+        elif lowered == "name":
+            renamed_columns[col] = "Team Member"
         elif lowered == "team member":
             renamed_columns[col] = "Team Member"
         elif lowered in {"9grid number", "9 grid number", "9-grid number", "9grid", "9 grid"}:
@@ -151,14 +167,37 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
             renamed_columns[col] = "Main Concern"
         elif lowered == "rationale":
             renamed_columns[col] = "Rationale"
+        elif lowered == "performance":
+            renamed_columns[col] = "Performance Score"
         elif lowered == "performance score":
             renamed_columns[col] = "Performance Score"
+        elif lowered == "potential":
+            renamed_columns[col] = "Trajectory Score"
         elif lowered == "trajectory score":
             renamed_columns[col] = "Trajectory Score"
         else:
             renamed_columns[col] = normalized
 
     return df.rename(columns=renamed_columns)
+
+
+def prepare_plotting_frame(df: pd.DataFrame) -> pd.DataFrame:
+    prepared = df.copy()
+    prepared["Team Member"] = prepared["Team Member"].astype("string").str.strip()
+    prepared = prepared[prepared["Team Member"].notna() & (prepared["Team Member"] != "")]
+
+    prepared["Performance Score"] = pd.to_numeric(prepared["Performance Score"], errors="coerce")
+    prepared["Trajectory Score"] = pd.to_numeric(prepared["Trajectory Score"], errors="coerce")
+    prepared = prepared[prepared["Performance Score"].between(1, 3) & prepared["Trajectory Score"].between(1, 3)]
+
+    for col in ["Action Bucket", "Owner", "Churn Risk", "Main Strength", "Main Concern", "Rationale"]:
+        prepared[col] = prepared[col].fillna("").astype("string").str.strip()
+
+    prepared["Assigned Score"] = (
+        prepared["Performance Score"].astype(int) + (prepared["Trajectory Score"].astype(int) - 1) * 3
+    )
+    prepared = prepared.reset_index(drop=True)
+    return assign_plot_numbers(prepared)
 
 
 def load_compact_format(df: pd.DataFrame) -> pd.DataFrame:
@@ -201,6 +240,28 @@ def load_compact_format(df: pd.DataFrame) -> pd.DataFrame:
         ]
     ]
     return assign_plot_numbers(compact)
+
+
+def load_hybrid_format(df: pd.DataFrame) -> pd.DataFrame:
+    hybrid = df[HYBRID_REQUIRED_COLUMNS].copy()
+    lead_names = hybrid["Lead Name"].fillna("").astype("string").str.strip()
+    owners = hybrid["Owner"].fillna("").astype("string").str.strip()
+    hybrid["Owner"] = owners.where(owners != "", lead_names)
+    return prepare_plotting_frame(
+        hybrid[
+            [
+                "Team Member",
+                "Action Bucket",
+                "Owner",
+                "Churn Risk",
+                "Main Strength",
+                "Main Concern",
+                "Rationale",
+                "Performance Score",
+                "Trajectory Score",
+            ]
+        ]
+    )
 
 
 def assign_plot_numbers(df: pd.DataFrame) -> pd.DataFrame:
@@ -556,13 +617,8 @@ def export_owner_views(df: pd.DataFrame) -> int:
 
 def main() -> None:
     OUTPUT_DIR.mkdir(exist_ok=True)
-
-    if not DEFAULT_INPUT.exists():
-        raise FileNotFoundError(
-            f'Input file not found: "{DEFAULT_INPUT}". Place "9Grid exercice.xlsx" next to this script.'
-        )
-
-    df = load_data(DEFAULT_INPUT)
+    input_path = resolve_input_path()
+    df = load_data(input_path)
     if df.empty:
         raise ValueError("No valid rows found after applying the required filters.")
 
