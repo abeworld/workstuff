@@ -448,8 +448,8 @@ def sanitize_filename(value: str) -> str:
 
 
 def build_legend_table(df: pd.DataFrame) -> pd.DataFrame:
-    legend = df[["Plot Number", "Team Member", "Action Bucket", "Owner", "Churn Risk"]].copy()
-    legend = legend.rename(columns={"Plot Number": "Number"})
+    legend = df[["Plot Number", "Team Member", "Action Bucket", "Churn Risk"]].copy()
+    legend = legend.rename(columns={"Plot Number": "Nr"})
     return legend
 
 
@@ -486,7 +486,7 @@ def build_overview_summary_table(df: pd.DataFrame) -> pd.DataFrame:
             score_table[owner] = ""
 
     score_table = score_table[["Plot Number", "Team Member", *owner_columns]]
-    return score_table.rename(columns={"Plot Number": "Number"})
+    return score_table.rename(columns={"Plot Number": "Nr"})
 
 
 def get_owner_colors(df: pd.DataFrame) -> dict[str, str]:
@@ -707,44 +707,64 @@ def draw_legend_panel(
     ax.axis("off")
     ax.set_title("Legend / Discussion", loc="left", fontsize=12, fontweight="bold", pad=10)
 
-    y = 0.98
-    ax.text(0.0, y, "Manager colors", transform=ax.transAxes, fontsize=10, fontweight="bold", va="top")
-    y -= 0.04
-    for owner, color in owner_colors.items():
-        ax.text(0.0, y, "\u25CF", color=color, transform=ax.transAxes, fontsize=12, va="top")
-        ax.text(0.04, y, owner, transform=ax.transAxes, fontsize=9, va="top", color="#203040")
-        y -= 0.035
+    def draw_manager_colors(start_x: float, start_y: float) -> float:
+        y_pos = start_y
+        ax.text(start_x, y_pos, "Manager colors", transform=ax.transAxes, fontsize=10, fontweight="bold", va="top")
+        y_pos -= 0.04
+        for owner, color in owner_colors.items():
+            ax.text(start_x, y_pos, "\u25CF", color=color, transform=ax.transAxes, fontsize=12, va="top")
+            ax.text(start_x + 0.04, y_pos, owner, transform=ax.transAxes, fontsize=9, va="top", color="#203040")
+            y_pos -= 0.035
+        return y_pos
 
-    y -= 0.01
-    ax.text(0.0, y, "Churn risk outline", transform=ax.transAxes, fontsize=10, fontweight="bold", va="top")
-    y -= 0.04
-    for label, key in [("Low", "low"), ("Medium", "medium"), ("High", "high")]:
-        style = CHURN_RISK_STYLES[key]
-        ax.scatter(
-            [0.015],
-            [y - 0.01],
-            s=style["size"] * 0.28,
-            facecolors="white",
-            edgecolors=style["edgecolor"],
-            linewidths=style["linewidth"],
+    def draw_churn_risk(start_x: float, start_y: float) -> float:
+        y_pos = start_y
+        ax.text(
+            start_x,
+            y_pos,
+            "Churn risk outline",
             transform=ax.transAxes,
-            clip_on=False,
-            zorder=3,
+            fontsize=10,
+            fontweight="bold",
+            va="top",
         )
-        if style["halo_size"] > 0:
+        y_pos -= 0.04
+        for label, key in [("Low", "low"), ("Medium", "medium"), ("High", "high")]:
+            style = CHURN_RISK_STYLES[key]
             ax.scatter(
-                [0.015],
-                [y - 0.01],
-                s=style["halo_size"] * 0.28,
-                facecolors="none",
+                [start_x + 0.015],
+                [y_pos - 0.01],
+                s=style["size"] * 0.28,
+                facecolors="white",
                 edgecolors=style["edgecolor"],
-                linewidths=style["halo_width"],
+                linewidths=style["linewidth"],
                 transform=ax.transAxes,
                 clip_on=False,
-                zorder=2,
+                zorder=3,
             )
-        ax.text(0.04, y, label, transform=ax.transAxes, fontsize=9, va="top", color="#203040")
-        y -= 0.035
+            if style["halo_size"] > 0:
+                ax.scatter(
+                    [start_x + 0.015],
+                    [y_pos - 0.01],
+                    s=style["halo_size"] * 0.28,
+                    facecolors="none",
+                    edgecolors=style["edgecolor"],
+                    linewidths=style["halo_width"],
+                    transform=ax.transAxes,
+                    clip_on=False,
+                    zorder=2,
+                )
+            ax.text(start_x + 0.04, y_pos, label, transform=ax.transAxes, fontsize=9, va="top", color="#203040")
+            y_pos -= 0.035
+        return y_pos
+
+    if is_overview:
+        bottom_manager_y = draw_manager_colors(0.0, 0.98)
+        bottom_churn_y = draw_churn_risk(0.5, 0.98)
+        y = min(bottom_manager_y, bottom_churn_y) - 0.02
+    else:
+        y = draw_manager_colors(0.0, 0.98) - 0.01
+        y = draw_churn_risk(0.0, y) - 0.02
 
     headers = list(legend_df.columns)
     table_rows = [headers]
@@ -752,12 +772,12 @@ def draw_legend_panel(
         table_rows.append([str(row[col]) for col in headers])
 
     if is_overview:
-        col_widths = [0.09, 0.33]
+        col_widths = [0.07, 0.31]
         owner_count = max(1, len(headers) - 2)
         score_width = (1.0 - sum(col_widths)) / owner_count
         col_widths.extend([score_width] * owner_count)
     else:
-        col_widths = [0.07, 0.28, 0.22, 0.16, 0.27]
+        col_widths = [0.08, 0.38, 0.24, 0.30]
 
     table = ax.table(
         cellText=table_rows,
