@@ -21,17 +21,19 @@ The script reads an Excel workbook, plots a 3x3 performance/trajectory grid, exp
 Install dependencies:
 
 ```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 ```
 
 ## Expected Excel File
 
-By default, the script looks for either of these files:
+By default, the script looks for the first matching file from this list:
 
 - `9Grid exercice.xlsx`
 - `9Grid_exercice.xlsx`
 
-in the same folder as the script.
+The workbook must be in the same folder as the script.
 
 It reads the sheet named:
 
@@ -144,17 +146,18 @@ The script creates owner-specific charts when an owner has at least 2 valid plot
 From the project folder:
 
 ```powershell
+.\.venv\Scripts\Activate.ps1
 python .\generate_9grid.py
 ```
 
-If `python` does not work on your machine:
+If your terminal does not recognize `python` yet, run it directly from the virtual environment:
 
 ```powershell
-py .\generate_9grid.py
+.\.venv\Scripts\python.exe .\generate_9grid.py
 ```
 
 ## Notes
 
 - Close the Excel file before running the script, otherwise Windows may block access.
 - Generated files are written to the `output/` folder.
-- The input workbook and generated output are ignored by Git in the default setup.
+- `.venv/`, the input workbook, and generated output are ignored by Git in the default setup.
