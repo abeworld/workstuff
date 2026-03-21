@@ -1,21 +1,46 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 import math
 import re
+import shutil
 
 import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.patches import Rectangle
+import win32com.client as win32
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = SCRIPT_DIR / "output"
 SHEET_NAME = "Data"
+POWERBI_TEMPLATE_CANDIDATES = [
+    SCRIPT_DIR / "9GRID.xlsb",
+    Path.home() / "Downloads" / "9GRID.xlsb",
+]
 MANAGER_FILE_PATTERN = re.compile(r"^9grid_(?P<manager>.+)\.xlsx$", re.IGNORECASE)
 DEFAULT_INPUT_CANDIDATES = [
     SCRIPT_DIR / "9Grid exercice.xlsx",
     SCRIPT_DIR / "9Grid_exercice.xlsx",
+]
+POWERBI_EXPORT_COLUMNS = [
+    "Department",
+    "Employee ID",
+    "Name",
+    "9Grid_Date",
+    "Flight Risk",
+    "Performance",
+    "Potential",
+    "Grid Box",
+    "Feedback",
+]
+OPTIONAL_SOURCE_COLUMNS = [
+    "Department",
+    "Employee ID",
+    "9Grid_Date",
+    "Flight Risk",
+    "Feedback",
 ]
 
 FULL_REQUIRED_COLUMNS = [
@@ -91,6 +116,11 @@ GRID_NUMBER_MAP = {
     9: (3, 3),
 }
 EXCLUDED_TEAM_MEMBERS = {"john doe"}
+SCORE_LABELS = {
+    1: "Low",
+    2: "Moderate",
+    3: "High",
+}
 
 
 def extract_manager_name(excel_path: Path) -> str | None:
@@ -100,6 +130,15 @@ def extract_manager_name(excel_path: Path) -> str | None:
 
     manager = match.group("manager").replace("_", " ").strip()
     return manager or None
+
+
+def resolve_powerbi_template_path() -> Path:
+    for candidate in POWERBI_TEMPLATE_CANDIDATES:
+        if candidate.exists():
+            return candidate
+
+    expected_names = ", ".join(f'"{path}"' for path in POWERBI_TEMPLATE_CANDIDATES)
+    raise FileNotFoundError(f"Power BI template not found. Expected one of: {expected_names}")
 
 
 def resolve_input_paths() -> list[Path]:
@@ -152,7 +191,8 @@ def load_data(excel_path: Path, manager_name: str | None = None) -> pd.DataFrame
 
 
 def load_full_format(df: pd.DataFrame) -> pd.DataFrame:
-    return prepare_plotting_frame(df[FULL_REQUIRED_COLUMNS].copy())
+    selected_columns = FULL_REQUIRED_COLUMNS + [col for col in OPTIONAL_SOURCE_COLUMNS if col in df.columns]
+    return prepare_plotting_frame(df[selected_columns].copy())
 
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -240,6 +280,11 @@ def load_compact_format(df: pd.DataFrame) -> pd.DataFrame:
     compact["Main Strength"] = ""
     compact["Main Concern"] = ""
     compact["Rationale"] = ""
+    compact["Department"] = ""
+    compact["Employee ID"] = ""
+    compact["9Grid_Date"] = ""
+    compact["Flight Risk"] = ""
+    compact["Feedback"] = ""
     compact["Performance Score"] = compact["9Grid number"].map(lambda value: GRID_NUMBER_MAP[int(value)][0])
     compact["Trajectory Score"] = compact["9Grid number"].map(lambda value: GRID_NUMBER_MAP[int(value)][1])
     compact["Assigned Score"] = compact["9Grid number"].astype(int)
@@ -254,6 +299,11 @@ def load_compact_format(df: pd.DataFrame) -> pd.DataFrame:
             "Main Strength",
             "Main Concern",
             "Rationale",
+            "Department",
+            "Employee ID",
+            "9Grid_Date",
+            "Flight Risk",
+            "Feedback",
             "Performance Score",
             "Trajectory Score",
             "Assigned Score",
@@ -263,7 +313,8 @@ def load_compact_format(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_hybrid_format(df: pd.DataFrame) -> pd.DataFrame:
-    hybrid = df[HYBRID_REQUIRED_COLUMNS].copy()
+    selected_columns = HYBRID_REQUIRED_COLUMNS + [col for col in OPTIONAL_SOURCE_COLUMNS if col in df.columns]
+    hybrid = df[selected_columns].copy()
     lead_names = hybrid["Lead Name"].fillna("").astype("string").str.strip()
     owners = hybrid["Owner"].fillna("").astype("string").str.strip()
     hybrid["Owner"] = owners.where(owners != "", lead_names)
@@ -277,6 +328,7 @@ def load_hybrid_format(df: pd.DataFrame) -> pd.DataFrame:
                 "Main Strength",
                 "Main Concern",
                 "Rationale",
+                *[col for col in OPTIONAL_SOURCE_COLUMNS if col in hybrid.columns],
                 "Performance Score",
                 "Trajectory Score",
             ]
@@ -434,6 +486,124 @@ def normalize_churn_risk(value: object) -> str:
     if text in {"1", "low", "l", "green"}:
         return "low"
     return "unknown"
+
+
+def format_score_label(value: object) -> str:
+    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.notna(numeric):
+        return SCORE_LABELS.get(int(numeric), "")
+
+    text = str(value).strip().casefold()
+    if text in {"1", "low", "l"}:
+        return "Low"
+    if text in {"2", "moderate", "medium", "med", "m"}:
+        return "Moderate"
+    if text in {"3", "high", "h"}:
+        return "High"
+    return ""
+
+
+def format_flight_risk(value: object) -> str:
+    normalized = normalize_churn_risk(value)
+    if normalized == "low":
+        return "Low"
+    if normalized == "medium":
+        return "Moderate"
+    if normalized == "high":
+        return "High"
+    return ""
+
+
+def build_grid_box_label(performance_label: str, potential_label: str) -> str:
+    if not performance_label or not potential_label:
+        return ""
+    return f"{performance_label}-{potential_label}"
+
+
+def clean_export_value(value: object) -> str:
+    if pd.isna(value):
+        return ""
+    return str(value).strip()
+
+
+def build_powerbi_export_table(df: pd.DataFrame, export_date: str) -> pd.DataFrame:
+    export = pd.DataFrame()
+    export["Department"] = (
+        df["Department"].map(clean_export_value) if "Department" in df.columns else ""
+    )
+    export["Employee ID"] = (
+        df["Employee ID"].map(clean_export_value) if "Employee ID" in df.columns else ""
+    )
+    export["Name"] = df["Team Member"].map(clean_export_value)
+
+    if "9Grid_Date" in df.columns:
+        export["9Grid_Date"] = df["9Grid_Date"].map(clean_export_value).replace("", export_date)
+    else:
+        export["9Grid_Date"] = export_date
+
+    if "Flight Risk" in df.columns:
+        export["Flight Risk"] = df["Flight Risk"].map(format_flight_risk)
+    else:
+        export["Flight Risk"] = df["Churn Risk"].map(format_flight_risk)
+
+    export["Performance"] = df["Performance Score"].map(format_score_label)
+    export["Potential"] = df["Trajectory Score"].map(format_score_label)
+    export["Grid Box"] = [
+        build_grid_box_label(performance_label, potential_label)
+        for performance_label, potential_label in zip(export["Performance"], export["Potential"])
+    ]
+    if "Feedback" in df.columns:
+        export["Feedback"] = df["Feedback"].map(clean_export_value)
+    else:
+        export["Feedback"] = df["Rationale"].map(clean_export_value)
+
+    return export[POWERBI_EXPORT_COLUMNS].reset_index(drop=True)
+
+
+def write_powerbi_workbook(template_path: Path, output_path: Path, export_df: pd.DataFrame) -> None:
+    shutil.copy2(template_path, output_path)
+    excel = win32.DispatchEx("Excel.Application")
+    excel.Visible = False
+    excel.DisplayAlerts = False
+    workbook = None
+    worksheet = None
+
+    try:
+        workbook = excel.Workbooks.Open(str(output_path))
+        worksheet = workbook.Worksheets("9grid")
+        last_row = max(2, worksheet.UsedRange.Rows.Count)
+        worksheet.Range(f"A2:I{last_row}").ClearContents()
+
+        if not export_df.empty:
+            rows = [list(row) for row in export_df.itertuples(index=False, name=None)]
+            end_row = len(rows) + 1
+            worksheet.Range(f"A2:I{end_row}").Value = rows
+
+        workbook.Save()
+    finally:
+        if workbook is not None:
+            workbook.Close(SaveChanges=True)
+        excel.Quit()
+        if worksheet is not None:
+            del worksheet
+        if workbook is not None:
+            del workbook
+        del excel
+
+
+def export_powerbi_workbooks(datasets: list[tuple[Path, str | None, pd.DataFrame]]) -> int:
+    template_path = resolve_powerbi_template_path()
+    export_date = date.today().isoformat()
+    export_count = 0
+
+    for input_path, manager_name, df in datasets:
+        safe_manager = sanitize_filename(manager_name or input_path.stem)
+        output_path = OUTPUT_DIR / f"9GRID_{safe_manager}.xlsb"
+        export_df = build_powerbi_export_table(df, export_date)
+        write_powerbi_workbook(template_path, output_path, export_df)
+        export_count += 1
+
+    return export_count
 
 
 def draw_grid(ax: plt.Axes) -> None:
@@ -630,10 +800,12 @@ def export_owner_views(df: pd.DataFrame) -> int:
 def main() -> None:
     OUTPUT_DIR.mkdir(exist_ok=True)
     input_paths = resolve_input_paths()
-    loaded_frames = []
+    datasets: list[tuple[Path, str | None, pd.DataFrame]] = []
     for input_path in input_paths:
-        loaded_frames.append(load_data(input_path, manager_name=extract_manager_name(input_path)))
+        manager_name = extract_manager_name(input_path)
+        datasets.append((input_path, manager_name, load_data(input_path, manager_name=manager_name)))
 
+    loaded_frames = [df for _, _, df in datasets]
     df = pd.concat(loaded_frames, ignore_index=True)
     if df.empty:
         raise ValueError("No valid rows found after applying the required filters.")
@@ -647,9 +819,11 @@ def main() -> None:
     )
 
     owner_views = export_owner_views(df)
+    powerbi_exports = export_powerbi_workbooks(datasets)
     print(f"Loaded {len(input_paths)} workbook(s).")
     print(f"Created overview chart for {len(df)} employees.")
     print(f"Created {owner_views} owner-specific chart(s).")
+    print(f"Created {powerbi_exports} Power BI workbook(s).")
     print(f"Files saved to: {OUTPUT_DIR}")
 
 

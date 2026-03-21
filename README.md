@@ -2,7 +2,7 @@
 
 Python script to generate a clean 9-grid talent calibration chart from Excel.
 
-The script reads one or more Excel workbooks, plots a 3x3 performance/trajectory grid, exports a high-resolution PNG, and creates CSV tables for discussion. It also generates one chart per owner/manager when enough data is available.
+The script reads one or more Excel workbooks, plots a 3x3 performance/trajectory grid, exports a high-resolution PNG, creates CSV tables for discussion, and generates one Power BI-ready workbook per manager input. It also generates one chart per owner/manager when enough data is available.
 
 ## What It Produces
 
@@ -10,6 +10,7 @@ The script reads one or more Excel workbooks, plots a 3x3 performance/trajectory
 - `output/9grid_overview_legend.csv`
 - `output/9grid_owner_<owner>.png`
 - `output/9grid_owner_<owner>_legend.csv`
+- `output/9GRID_<manager>.xlsb`
 
 ## Requirements
 
@@ -46,6 +47,7 @@ How manager naming works:
 - `9grid_Gary.xlsx` becomes manager `Gary`
 - `9grid_Bart_Vandenberghe.xlsx` becomes manager `Bart Vandenberghe`
 - all rows loaded from that workbook are assigned to that manager for color-coding and owner-specific exports
+- that workbook also produces a Power BI export named `9GRID_<manager>.xlsb`
 
 Fallback for older usage:
 
@@ -57,6 +59,11 @@ All input workbooks must be in the same folder as the script.
 Each workbook is expected to read the sheet named:
 
 - `Data`
+
+The Power BI template workbook is expected at one of:
+
+- `.\9GRID.xlsb`
+- `C:\Users\<you>\Downloads\9GRID.xlsb`
 
 ## Supported Input Formats
 
@@ -158,6 +165,30 @@ The overview export groups by team member and shows:
 
 The script creates owner-specific charts when an owner has at least 2 valid plotted employees.
 
+## Power BI Export
+
+For each input workbook, the script creates one `.xlsb` output based on the `9GRID.xlsb` template.
+
+The generated workbook keeps the template structure and fills the `9grid` sheet with exactly these columns:
+
+- `Department`
+- `Employee ID`
+- `Name`
+- `9Grid_Date`
+- `Flight Risk`
+- `Performance`
+- `Potential`
+- `Grid Box`
+- `Feedback`
+
+Value mapping:
+
+- `Name` comes from the employee name in the input workbook
+- `Flight Risk`, `Performance`, and `Potential` are exported as `Low`, `Moderate`, or `High`
+- `Grid Box` is exported as combinations such as `Low-High` or `Moderate-Moderate`
+- `Feedback` uses the input `Rationale` when no dedicated feedback column exists
+- a template/example row named `John Doe` is always excluded
+
 ## How To Run
 
 From the project folder:
@@ -178,5 +209,6 @@ If your terminal does not recognize `python` yet, run it directly from the virtu
 - Close the Excel file before running the script, otherwise Windows may block access.
 - When multiple `9grid_<manager>.xlsx` files are present, they are merged into one overview and split back out into one owner chart per manager.
 - A row for `John Doe` is treated as template guidance and is excluded from all outputs.
+- One Power BI-ready `.xlsb` file is generated per input workbook in the `output/` folder.
 - Generated files are written to the `output/` folder.
 - `.venv/`, the input workbook, and generated output are ignored by Git in the default setup.
