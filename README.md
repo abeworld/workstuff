@@ -2,7 +2,7 @@
 
 Python script to generate a clean 9-grid talent calibration chart from Excel.
 
-The script reads an Excel workbook, plots a 3x3 performance/trajectory grid, exports a high-resolution PNG, and creates CSV tables for discussion. It also generates one chart per owner/manager when enough data is available.
+The script reads one or more Excel workbooks, plots a 3x3 performance/trajectory grid, exports a high-resolution PNG, and creates CSV tables for discussion. It also generates one chart per owner/manager when enough data is available.
 
 ## What It Produces
 
@@ -26,16 +26,35 @@ python -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-## Expected Excel File
+## Expected Excel Files
 
-By default, the script looks for the first matching file from this list:
+Preferred input format:
+
+- `9grid_Gary.xlsx`
+- `9grid_Brecht.xlsx`
+- `9grid_Stephanie.xlsx`
+
+Pattern:
+
+- `9grid_<manager>.xlsx`
+
+You can place multiple files in the same folder and the script will process all of them in one run.
+
+How manager naming works:
+
+- the manager name is taken from the filename
+- `9grid_Gary.xlsx` becomes manager `Gary`
+- `9grid_Bart_Vandenberghe.xlsx` becomes manager `Bart Vandenberghe`
+- all rows loaded from that workbook are assigned to that manager for color-coding and owner-specific exports
+
+Fallback for older usage:
 
 - `9Grid exercice.xlsx`
 - `9Grid_exercice.xlsx`
 
-The workbook must be in the same folder as the script.
+All input workbooks must be in the same folder as the script.
 
-It reads the sheet named:
+Each workbook is expected to read the sheet named:
 
 - `Data`
 
@@ -100,6 +119,7 @@ How hybrid format is interpreted:
 - `Potential` is mapped to `Trajectory Score`
 - `Owner` is used when filled; otherwise the script falls back to `Lead Name`
 - rows without valid `Performance` and `Potential` scores from `1` to `3` are skipped
+- a template/example row named `John Doe` is always ignored
 
 ## Visual Encoding
 
@@ -116,12 +136,9 @@ How hybrid format is interpreted:
 
 ### Manager colors
 
-- `Brecht` = blue
-- `Gary` = green
-- `Stephanie` = purple
-- `Bart` = teal
-
-Other owners receive fallback colors automatically.
+- each manager gets a distinct color within a run
+- colors may change between runs
+- manager colors are derived from the filenames when using `9grid_<manager>.xlsx`
 
 ### Churn risk styling
 
@@ -159,5 +176,7 @@ If your terminal does not recognize `python` yet, run it directly from the virtu
 ## Notes
 
 - Close the Excel file before running the script, otherwise Windows may block access.
+- When multiple `9grid_<manager>.xlsx` files are present, they are merged into one overview and split back out into one owner chart per manager.
+- A row for `John Doe` is treated as template guidance and is excluded from all outputs.
 - Generated files are written to the `output/` folder.
 - `.venv/`, the input workbook, and generated output are ignored by Git in the default setup.

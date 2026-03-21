@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import math
+import re
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -11,6 +12,7 @@ from matplotlib.patches import Rectangle
 SCRIPT_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = SCRIPT_DIR / "output"
 SHEET_NAME = "Data"
+MANAGER_FILE_PATTERN = re.compile(r"^9grid_(?P<manager>.+)\.xlsx$", re.IGNORECASE)
 DEFAULT_INPUT_CANDIDATES = [
     SCRIPT_DIR / "9Grid exercice.xlsx",
     SCRIPT_DIR / "9Grid_exercice.xlsx",
@@ -59,13 +61,6 @@ Y_LABELS = {
     3: "High trajectory",
 }
 
-OWNER_COLOR_MAP = {
-    "brecht": "#1F77B4",
-    "gary": "#2CA02C",
-    "stephanie": "#7A52A1",
-    "bart": "#008B8B",
-}
-
 FALLBACK_COLORS = [
     "#4E79A7",
     "#59A14F",
@@ -76,8 +71,6 @@ FALLBACK_COLORS = [
     "#B07AA1",
     "#9C755F",
 ]
-
-PREFERRED_OWNER_ORDER = ["Brecht", "Gary", "Stephanie", "Bart"]
 
 CHURN_RISK_STYLES = {
     "low": {"edgecolor": "#C7CDD6", "linewidth": 0.9, "size": 360, "halo_size": 0, "halo_width": 0},
@@ -97,39 +90,65 @@ GRID_NUMBER_MAP = {
     8: (2, 3),
     9: (3, 3),
 }
+EXCLUDED_TEAM_MEMBERS = {"john doe"}
 
 
-def resolve_input_path() -> Path:
+def extract_manager_name(excel_path: Path) -> str | None:
+    match = MANAGER_FILE_PATTERN.match(excel_path.name)
+    if not match:
+        return None
+
+    manager = match.group("manager").replace("_", " ").strip()
+    return manager or None
+
+
+def resolve_input_paths() -> list[Path]:
+    manager_files = sorted(
+        [path for path in SCRIPT_DIR.glob("*.xlsx") if extract_manager_name(path)],
+        key=lambda path: path.name.casefold(),
+    )
+    if manager_files:
+        return manager_files
+
     for candidate in DEFAULT_INPUT_CANDIDATES:
         if candidate.exists():
-            return candidate
+            return [candidate]
 
     expected_names = ", ".join(f'"{path.name}"' for path in DEFAULT_INPUT_CANDIDATES)
-    raise FileNotFoundError(f"Input file not found. Place one of {expected_names} next to this script.")
+    raise FileNotFoundError(
+        "Input file not found. Place one or more files matching "
+        '"9grid_<manager>.xlsx" next to this script, or use one of '
+        f"{expected_names}."
+    )
 
 
-def load_data(excel_path: Path) -> pd.DataFrame:
+def load_data(excel_path: Path, manager_name: str | None = None) -> pd.DataFrame:
     df = pd.read_excel(excel_path, sheet_name=SHEET_NAME)
     df = normalize_columns(df)
 
     if all(col in df.columns for col in HYBRID_REQUIRED_COLUMNS):
-        return load_hybrid_format(df)
+        loaded = load_hybrid_format(df)
+    elif all(col in df.columns for col in FULL_REQUIRED_COLUMNS):
+        loaded = load_full_format(df)
+    elif all(col in df.columns for col in COMPACT_REQUIRED_COLUMNS):
+        loaded = load_compact_format(df)
+    else:
+        missing_full = [col for col in FULL_REQUIRED_COLUMNS if col not in df.columns]
+        missing_hybrid = [col for col in HYBRID_REQUIRED_COLUMNS if col not in df.columns]
+        missing_compact = [col for col in COMPACT_REQUIRED_COLUMNS if col not in df.columns]
+        raise ValueError(
+            f'Unsupported sheet structure in "{excel_path.name}".\n'
+            f"Missing columns for full format: {', '.join(missing_full) or 'none'}\n"
+            f"Missing columns for hybrid format: {', '.join(missing_hybrid) or 'none'}\n"
+            f"Missing columns for compact format: {', '.join(missing_compact) or 'none'}"
+        )
 
-    if all(col in df.columns for col in FULL_REQUIRED_COLUMNS):
-        return load_full_format(df)
+    if manager_name:
+        loaded = loaded.copy()
+        loaded["Owner"] = manager_name
 
-    if all(col in df.columns for col in COMPACT_REQUIRED_COLUMNS):
-        return load_compact_format(df)
-
-    missing_full = [col for col in FULL_REQUIRED_COLUMNS if col not in df.columns]
-    missing_hybrid = [col for col in HYBRID_REQUIRED_COLUMNS if col not in df.columns]
-    missing_compact = [col for col in COMPACT_REQUIRED_COLUMNS if col not in df.columns]
-    raise ValueError(
-        "Unsupported sheet structure.\n"
-        f"Missing columns for full format: {', '.join(missing_full) or 'none'}\n"
-        f"Missing columns for hybrid format: {', '.join(missing_hybrid) or 'none'}\n"
-        f"Missing columns for compact format: {', '.join(missing_compact) or 'none'}"
-    )
+    loaded["Source File"] = excel_path.name
+    return loaded
 
 
 def load_full_format(df: pd.DataFrame) -> pd.DataFrame:
@@ -185,6 +204,7 @@ def prepare_plotting_frame(df: pd.DataFrame) -> pd.DataFrame:
     prepared = df.copy()
     prepared["Team Member"] = prepared["Team Member"].astype("string").str.strip()
     prepared = prepared[prepared["Team Member"].notna() & (prepared["Team Member"] != "")]
+    prepared = prepared[~prepared["Team Member"].astype(str).str.casefold().isin(EXCLUDED_TEAM_MEMBERS)]
 
     prepared["Performance Score"] = pd.to_numeric(prepared["Performance Score"], errors="coerce")
     prepared["Trajectory Score"] = pd.to_numeric(prepared["Trajectory Score"], errors="coerce")
@@ -367,9 +387,7 @@ def get_owner_display_order(df: pd.DataFrame) -> list[str]:
         if clean_owner not in owners:
             owners.append(clean_owner)
 
-    preferred = [owner for owner in PREFERRED_OWNER_ORDER if owner in owners]
-    remaining = sorted([owner for owner in owners if owner not in preferred], key=str.casefold)
-    return preferred + remaining
+    return sorted(owners, key=str.casefold)
 
 
 def build_overview_summary_table(df: pd.DataFrame) -> pd.DataFrame:
@@ -401,14 +419,8 @@ def build_overview_summary_table(df: pd.DataFrame) -> pd.DataFrame:
 def get_owner_colors(df: pd.DataFrame) -> dict[str, str]:
     owners = get_owner_display_order(df)
     colors: dict[str, str] = {}
-    fallback_index = 0
-    for owner in owners:
-        mapped = OWNER_COLOR_MAP.get(owner.casefold())
-        if mapped:
-            colors[owner] = mapped
-            continue
-        colors[owner] = FALLBACK_COLORS[fallback_index % len(FALLBACK_COLORS)]
-        fallback_index += 1
+    for index, owner in enumerate(owners):
+        colors[owner] = FALLBACK_COLORS[index % len(FALLBACK_COLORS)]
 
     return colors
 
@@ -617,8 +629,12 @@ def export_owner_views(df: pd.DataFrame) -> int:
 
 def main() -> None:
     OUTPUT_DIR.mkdir(exist_ok=True)
-    input_path = resolve_input_path()
-    df = load_data(input_path)
+    input_paths = resolve_input_paths()
+    loaded_frames = []
+    for input_path in input_paths:
+        loaded_frames.append(load_data(input_path, manager_name=extract_manager_name(input_path)))
+
+    df = pd.concat(loaded_frames, ignore_index=True)
     if df.empty:
         raise ValueError("No valid rows found after applying the required filters.")
 
@@ -631,6 +647,7 @@ def main() -> None:
     )
 
     owner_views = export_owner_views(df)
+    print(f"Loaded {len(input_paths)} workbook(s).")
     print(f"Created overview chart for {len(df)} employees.")
     print(f"Created {owner_views} owner-specific chart(s).")
     print(f"Files saved to: {OUTPUT_DIR}")
