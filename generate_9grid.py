@@ -199,7 +199,7 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     renamed_columns = {}
     for col in df.columns:
         normalized = " ".join(str(col).replace("\n", " ").split()).strip()
-        lowered = normalized.casefold()
+        lowered = re.sub(r"\.\d+$", "", normalized).strip().casefold()
 
         if lowered == "lead name":
             renamed_columns[col] = "Lead Name"
@@ -237,7 +237,28 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
         else:
             renamed_columns[col] = normalized
 
-    return df.rename(columns=renamed_columns)
+    renamed_df = df.rename(columns=renamed_columns)
+    return collapse_duplicate_columns(renamed_df)
+
+
+def collapse_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
+    collapsed = pd.DataFrame(index=df.index)
+    for column_name in dict.fromkeys(df.columns):
+        column_data = df.loc[:, df.columns == column_name]
+        if isinstance(column_data, pd.Series):
+            collapsed[column_name] = column_data
+            continue
+
+        merged = column_data.iloc[:, 0]
+        for index in range(1, column_data.shape[1]):
+            candidate = column_data.iloc[:, index]
+            merged = merged.where(
+                merged.notna() & (merged.astype("string").str.strip() != ""),
+                candidate,
+            )
+        collapsed[column_name] = merged
+
+    return collapsed
 
 
 def prepare_plotting_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -526,6 +547,15 @@ def clean_export_value(value: object) -> str:
     return str(value).strip()
 
 
+def build_feedback_series(df: pd.DataFrame) -> pd.Series:
+    feedback = pd.Series([""] * len(df), index=df.index, dtype="string")
+    if "Feedback" in df.columns:
+        feedback = df["Feedback"].map(clean_export_value).astype("string")
+
+    rationale = df["Rationale"].map(clean_export_value).astype("string")
+    return feedback.where(feedback.fillna("") != "", rationale).fillna("")
+
+
 def build_powerbi_export_table(df: pd.DataFrame, export_date: str) -> pd.DataFrame:
     export = pd.DataFrame()
     export["Department"] = (
@@ -548,14 +578,8 @@ def build_powerbi_export_table(df: pd.DataFrame, export_date: str) -> pd.DataFra
 
     export["Performance"] = df["Performance Score"].map(format_score_label)
     export["Potential"] = df["Trajectory Score"].map(format_score_label)
-    export["Grid Box"] = [
-        build_grid_box_label(performance_label, potential_label)
-        for performance_label, potential_label in zip(export["Performance"], export["Potential"])
-    ]
-    if "Feedback" in df.columns:
-        export["Feedback"] = df["Feedback"].map(clean_export_value)
-    else:
-        export["Feedback"] = df["Rationale"].map(clean_export_value)
+    export["Grid Box"] = ""
+    export["Feedback"] = build_feedback_series(df)
 
     return export[POWERBI_EXPORT_COLUMNS].reset_index(drop=True)
 
@@ -578,6 +602,9 @@ def write_powerbi_workbook(template_path: Path, output_path: Path, export_df: pd
             rows = [list(row) for row in export_df.itertuples(index=False, name=None)]
             end_row = len(rows) + 1
             worksheet.Range(f"A2:I{end_row}").Value = rows
+            worksheet.Range(f"H2:H{end_row}").FormulaR1C1 = (
+                '=IFERROR(INDEX(HELP!R3C2:R11C2,MATCH(RC[-2]&"-"&RC[-1],HELP!R3C5:R11C5,0)),"")'
+            )
 
         workbook.Save()
     finally:
