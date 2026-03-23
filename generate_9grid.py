@@ -799,7 +799,7 @@ def draw_legend_panel(
             cell.set_facecolor("white")
 
 
-def create_chart(plotted_df: pd.DataFrame, title: str, png_path: Path, csv_path: Path) -> None:
+def create_chart(plotted_df: pd.DataFrame, title: str, png_path: Path) -> None:
     is_overview = "overview" in png_path.stem.casefold()
     legend_df = build_overview_summary_table(plotted_df) if is_overview else build_legend_table(plotted_df)
     owner_colors = get_owner_colors(plotted_df)
@@ -816,8 +816,6 @@ def create_chart(plotted_df: pd.DataFrame, title: str, png_path: Path, csv_path:
     fig.suptitle(title, fontsize=16, fontweight="bold", x=0.34)
     fig.savefig(png_path, dpi=300, facecolor="white", bbox_inches="tight")
     plt.close(fig)
-
-    legend_df.to_csv(csv_path, index=False, encoding="utf-8-sig")
 
 
 def export_owner_views(df: pd.DataFrame) -> int:
@@ -837,7 +835,6 @@ def export_owner_views(df: pd.DataFrame) -> int:
             plotted_owner_df,
             f"9-Grid Talent Calibration - {owner_name}",
             OUTPUT_DIR / f"9grid_owner_{safe_owner}.png",
-            OUTPUT_DIR / f"9grid_owner_{safe_owner}_legend.csv",
         )
         owner_count += 1
 
@@ -862,7 +859,6 @@ def main() -> None:
         plotted_df,
         "9-Grid Talent Calibration",
         OUTPUT_DIR / "9grid_overview.png",
-        OUTPUT_DIR / "9grid_overview_legend.csv",
     )
 
     owner_views = export_owner_views(df)

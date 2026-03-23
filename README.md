@@ -8,8 +8,8 @@ For each run, the script:
 
 - reads all input workbooks matching `9grid_<manager>.xlsx`
 - combines them into one overview dataset
-- generates an overview 9-grid PNG and CSV legend
-- generates one owner-specific 9-grid PNG and CSV legend when that owner has at least 2 valid employees
+- generates an overview 9-grid PNG
+- generates one owner-specific 9-grid PNG when that owner has at least 2 valid employees
 - generates one Power BI-ready `9GRID_<manager>.xlsb` file per input workbook
 
 ## Expected Input Files
