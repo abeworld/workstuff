@@ -109,9 +109,7 @@ Generated files are written to [C:\Users\goldm\Downloads\Codex_work\workstuff\ou
 Typical outputs:
 
 - `output/9grid_overview.png`
-- `output/9grid_overview_legend.csv`
 - `output/9grid_owner_<owner>.png`
-- `output/9grid_owner_<owner>_legend.csv`
 - `output/9GRID_<manager>.xlsb`
 
 ## PNG Output Behavior
@@ -240,7 +238,7 @@ cd C:\Users\goldm\Downloads\Codex_work\workstuff
 1. Drop one or more `9grid_<manager>.xlsx` files into the project folder.
 2. Make sure the `9GRID.xlsb` Power BI template is available.
 3. Run `generate_9grid.py`.
-4. Pick up the generated PNG, CSV, and `.xlsb` files from the `output` folder.
+4. Pick up the generated PNG and `.xlsb` files from the `output` folder.
 
 ## Notes
 
